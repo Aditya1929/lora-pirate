@@ -5,11 +5,6 @@ import { cookies } from "next/headers";
 import type { VisibilityType } from "@/components/visibility-selector";
 import { titlePrompt } from "@/lib/ai/prompts";
 import { getTitleModel } from "@/lib/ai/providers";
-import {
-  deleteMessagesByChatIdAfterTimestamp,
-  getMessageById,
-  updateChatVisibilityById,
-} from "@/lib/db/queries";
 import { getTextFromMessage } from "@/lib/utils";
 
 export async function saveChatModelAsCookie(model: string) {
@@ -33,15 +28,13 @@ export async function generateTitleFromUserMessage({
     .trim();
 }
 
+// Stubbed - no database to delete from (client handles this)
 export async function deleteTrailingMessages({ id }: { id: string }) {
-  const [message] = await getMessageById({ id });
-
-  await deleteMessagesByChatIdAfterTimestamp({
-    chatId: message.chatId,
-    timestamp: message.createdAt,
-  });
+  // No-op: Client-side storage handles message deletion
+  console.log("deleteTrailingMessages called with id:", id);
 }
 
+// Stubbed - no database to update (visibility is handled client-side)
 export async function updateChatVisibility({
   chatId,
   visibility,
@@ -49,5 +42,6 @@ export async function updateChatVisibility({
   chatId: string;
   visibility: VisibilityType;
 }) {
-  await updateChatVisibilityById({ chatId, visibility });
+  // No-op: Client-side storage handles visibility
+  console.log("updateChatVisibility called:", { chatId, visibility });
 }

@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { memo } from "react";
 import { useChatVisibility } from "@/hooks/use-chat-visibility";
-import type { Chat } from "@/lib/db/schema";
 import {
   CheckCircleFillIcon,
   GlobeIcon,
@@ -26,13 +25,21 @@ import {
   SidebarMenuItem,
 } from "./ui/sidebar";
 
+// Simple chat type for sidebar display
+type ChatDisplay = {
+  id: string;
+  title: string;
+  createdAt: Date;
+  visibility: "public" | "private";
+};
+
 const PureChatItem = ({
   chat,
   isActive,
   onDelete,
   setOpenMobile,
 }: {
-  chat: Chat;
+  chat: ChatDisplay;
   isActive: boolean;
   onDelete: (chatId: string) => void;
   setOpenMobile: (open: boolean) => void;

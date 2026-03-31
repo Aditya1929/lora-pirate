@@ -20,22 +20,10 @@ import { getWeather } from "@/lib/ai/tools/get-weather";
 import { requestSuggestions } from "@/lib/ai/tools/request-suggestions";
 import { updateDocument } from "@/lib/ai/tools/update-document";
 import { isProductionEnvironment } from "@/lib/constants";
-import {
-  createStreamId,
-  deleteChatById,
-  getChatById,
-  getMessageCountByUserId,
-  getMessagesByChatId,
-  saveChat,
-  saveMessages,
-  updateChatTitleById,
-  updateMessage,
-} from "@/lib/db/queries";
-import type { DBMessage } from "@/lib/db/schema";
 import { ChatbotError } from "@/lib/errors";
 import { checkIpRateLimit } from "@/lib/ratelimit";
 import type { ChatMessage } from "@/lib/types";
-import { convertToUIMessages, generateUUID } from "@/lib/utils";
+import { generateUUID } from "@/lib/utils";
 import { generateTitleFromUserMessage } from "../../actions";
 import { type PostRequestBody, postRequestBodySchema } from "./schema";
 
@@ -51,6 +39,34 @@ function getStreamContext() {
 
 export { getStreamContext };
 
+// In-memory store for rate limiting (simple implementation)
+const messageCountByUser = new Map<string, { count: number; resetAt: number }>();
+
+function getMessageCountForUser(userId: string): number {
+  const now = Date.now();
+  const hourAgo = now - 60 * 60 * 1000;
+  const record = messageCountByUser.get(userId);
+  
+  if (!record || record.resetAt < hourAgo) {
+    messageCountByUser.set(userId, { count: 0, resetAt: now });
+    return 0;
+  }
+  
+  return record.count;
+}
+
+function incrementMessageCount(userId: string): void {
+  const now = Date.now();
+  const hourAgo = now - 60 * 60 * 1000;
+  const record = messageCountByUser.get(userId);
+  
+  if (!record || record.resetAt < hourAgo) {
+    messageCountByUser.set(userId, { count: 1, resetAt: now });
+  } else {
+    record.count += 1;
+  }
+}
+
 export async function POST(request: Request) {
   let requestBody: PostRequestBody;
 
@@ -62,7 +78,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const { id, message, messages, selectedChatModel, selectedVisibilityType } =
+    const { id, message, messages, selectedChatModel } =
       requestBody;
 
     const [botResult, session] = await Promise.all([checkBotId(), auth()]);
@@ -83,41 +99,26 @@ export async function POST(request: Request) {
 
     const userType: UserType = session.user.type;
 
-    const messageCount = await getMessageCountByUserId({
-      id: session.user.id,
-      differenceInHours: 1,
-    });
+    // Simple in-memory rate limiting (no database)
+    const messageCount = getMessageCountForUser(session.user.id);
 
     if (messageCount > entitlementsByUserType[userType].maxMessagesPerHour) {
       return new ChatbotError("rate_limit:chat").toResponse();
     }
 
+    incrementMessageCount(session.user.id);
+
     const isToolApprovalFlow = Boolean(messages);
 
-    const chat = await getChatById({ id });
-    let messagesFromDb: DBMessage[] = [];
+    // Generate title for new chats (client will handle storage)
     let titlePromise: Promise<string> | null = null;
-
-    if (chat) {
-      if (chat.userId !== session.user.id) {
-        return new ChatbotError("forbidden:chat").toResponse();
-      }
-      if (!isToolApprovalFlow) {
-        messagesFromDb = await getMessagesByChatId({ id });
-      }
-    } else if (message?.role === "user") {
-      await saveChat({
-        id,
-        userId: session.user.id,
-        title: "New chat",
-        visibility: selectedVisibilityType,
-      });
+    if (!isToolApprovalFlow && message?.role === "user") {
       titlePromise = generateTitleFromUserMessage({ message });
     }
 
     const uiMessages = isToolApprovalFlow
       ? (messages as ChatMessage[])
-      : [...convertToUIMessages(messagesFromDb), message as ChatMessage];
+      : [message as ChatMessage];
 
     const { longitude, latitude, city, country } = geolocation(request);
 
@@ -127,21 +128,6 @@ export async function POST(request: Request) {
       city,
       country,
     };
-
-    if (message?.role === "user") {
-      await saveMessages({
-        messages: [
-          {
-            chatId: id,
-            id: message.id,
-            role: "user",
-            parts: message.parts,
-            attachments: [],
-            createdAt: new Date(),
-          },
-        ],
-      });
-    }
 
     const isReasoningModel =
       selectedChatModel.endsWith("-thinking") ||
@@ -192,46 +178,12 @@ export async function POST(request: Request) {
         if (titlePromise) {
           const title = await titlePromise;
           dataStream.write({ type: "data-chat-title", data: title });
-          updateChatTitleById({ chatId: id, title });
         }
       },
       generateId: generateUUID,
-      onFinish: async ({ messages: finishedMessages }) => {
-        if (isToolApprovalFlow) {
-          for (const finishedMsg of finishedMessages) {
-            const existingMsg = uiMessages.find((m) => m.id === finishedMsg.id);
-            if (existingMsg) {
-              await updateMessage({
-                id: finishedMsg.id,
-                parts: finishedMsg.parts,
-              });
-            } else {
-              await saveMessages({
-                messages: [
-                  {
-                    id: finishedMsg.id,
-                    role: finishedMsg.role,
-                    parts: finishedMsg.parts,
-                    createdAt: new Date(),
-                    attachments: [],
-                    chatId: id,
-                  },
-                ],
-              });
-            }
-          }
-        } else if (finishedMessages.length > 0) {
-          await saveMessages({
-            messages: finishedMessages.map((currentMessage) => ({
-              id: currentMessage.id,
-              role: currentMessage.role,
-              parts: currentMessage.parts,
-              createdAt: new Date(),
-              attachments: [],
-              chatId: id,
-            })),
-          });
-        }
+      // No database saving - client handles storage via sessionStorage
+      onFinish: async () => {
+        // Nothing to save to database
       },
       onError: (error) => {
         if (
@@ -256,7 +208,7 @@ export async function POST(request: Request) {
           const streamContext = getStreamContext();
           if (streamContext) {
             const streamId = generateId();
-            await createStreamId({ streamId, chatId: id });
+            // Skip stream persistence without database
             await streamContext.createNewResumableStream(
               streamId,
               () => sseStream
@@ -302,13 +254,6 @@ export async function DELETE(request: Request) {
     return new ChatbotError("unauthorized:chat").toResponse();
   }
 
-  const chat = await getChatById({ id });
-
-  if (chat?.userId !== session.user.id) {
-    return new ChatbotError("forbidden:chat").toResponse();
-  }
-
-  const deletedChat = await deleteChatById({ id });
-
-  return Response.json(deletedChat, { status: 200 });
+  // No database to delete from - client handles deletion
+  return Response.json({ id, deleted: true }, { status: 200 });
 }

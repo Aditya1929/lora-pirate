@@ -17,6 +17,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { useChatStore } from "@/contexts/chat-store-context";
 import { useArtifactSelector } from "@/hooks/use-artifact";
 import { useAutoResume } from "@/hooks/use-auto-resume";
 import { useChatVisibility } from "@/hooks/use-chat-visibility";
@@ -48,6 +49,7 @@ export function Chat({
   autoResume: boolean;
 }) {
   const router = useRouter();
+  const { getChat, updateChat } = useChatStore();
 
   const { visibilityType } = useChatVisibility({
     chatId: id,
@@ -55,6 +57,18 @@ export function Chat({
   });
 
   const { mutate } = useSWRConfig();
+
+  // Load messages from session storage on mount
+  const [storedMessages, setStoredMessages] = useState<ChatMessage[]>([]);
+  const [isHydrated, setIsHydrated] = useState(false);
+
+  useEffect(() => {
+    const storedChat = getChat(id);
+    if (storedChat && storedChat.messages.length > 0) {
+      setStoredMessages(storedChat.messages);
+    }
+    setIsHydrated(true);
+  }, [id, getChat]);
 
   // Handle browser back/forward navigation
   useEffect(() => {
@@ -88,7 +102,8 @@ export function Chat({
     addToolApprovalResponse,
   } = useChat<ChatMessage>({
     id,
-    messages: initialMessages,
+    // Use stored messages if available, otherwise use initial messages
+    messages: isHydrated && storedMessages.length > 0 ? storedMessages : initialMessages,
     generateId: generateUUID,
     sendAutomaticallyWhen: ({ messages: currentMessages }) => {
       const lastMessage = currentMessages.at(-1);
@@ -175,6 +190,38 @@ export function Chat({
     messages.length >= 2 ? `/api/vote?chatId=${id}` : null,
     fetcher
   );
+
+  // Track current chat title
+  const [chatTitle, setChatTitle] = useState<string>(() => {
+    // Try to get existing title from stored chat
+    const storedChat = typeof window !== "undefined" ? getChat(id) : null;
+    return storedChat?.title || "New Chat";
+  });
+
+  // Listen for chat title updates from data stream
+  useEffect(() => {
+    const handleTitleUpdate = (event: CustomEvent<string>) => {
+      setChatTitle(event.detail);
+    };
+
+    window.addEventListener(
+      "chat-title-update",
+      handleTitleUpdate as EventListener
+    );
+    return () => {
+      window.removeEventListener(
+        "chat-title-update",
+        handleTitleUpdate as EventListener
+      );
+    };
+  }, []);
+
+  // Save messages to session storage when they change
+  useEffect(() => {
+    if (isHydrated && messages.length > 0) {
+      updateChat(id, messages, chatTitle);
+    }
+  }, [messages, id, chatTitle, isHydrated, updateChat]);
 
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const isArtifactVisible = useArtifactSelector((state) => state.isVisible);
