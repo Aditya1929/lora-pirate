@@ -1,3 +1,4 @@
+// No-database authentication - guest sessions only
 import NextAuth, { type DefaultSession } from "next-auth";
 import type { DefaultJWT } from "next-auth/jwt";
 import Credentials from "next-auth/providers/credentials";
