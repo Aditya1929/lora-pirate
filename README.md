@@ -1,5 +1,5 @@
 # LLaMA 3 8B × Captain Jack Sparrow — LoRA Fine-Tune
-
+Live Demo: https://piratese.vercel.app/
 Fine-tunes LLaMA 3 8B via QLoRA to speak like Captain Jack Sparrow. Hosted on Modal.
 
 ## Stack
