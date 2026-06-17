@@ -26,6 +26,10 @@ export function DataStreamHandler() {
       // Handle chat title updates
       if (delta.type === "data-chat-title") {
         mutate(unstable_serialize(getChatHistoryPaginationKey));
+        // Dispatch custom event for Chat component to capture title
+        window.dispatchEvent(
+          new CustomEvent("chat-title-update", { detail: delta.data })
+        );
         continue;
       }
       const artifactDefinition = artifactDefinitions.find(

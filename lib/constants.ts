@@ -1,5 +1,3 @@
-import { generateDummyPassword } from "./db/utils";
-
 export const isProductionEnvironment = process.env.NODE_ENV === "production";
 export const isDevelopmentEnvironment = process.env.NODE_ENV === "development";
 export const isTestEnvironment = Boolean(
@@ -8,6 +6,5 @@ export const isTestEnvironment = Boolean(
     process.env.CI_PLAYWRIGHT
 );
 
-export const guestRegex = /^guest-\d+$/;
-
-export const DUMMY_PASSWORD = generateDummyPassword();
+// Updated to match UUID-based guest emails: guest-{uuid}@local
+export const guestRegex = /^guest-[a-f0-9-]+@local$/;

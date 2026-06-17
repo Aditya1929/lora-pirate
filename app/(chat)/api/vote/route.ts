@@ -1,6 +1,8 @@
 import { auth } from "@/app/(auth)/auth";
-import { getChatById, getVotesByChatId, voteMessage } from "@/lib/db/queries";
 import { ChatbotError } from "@/lib/errors";
+
+// Votes are not persisted without a database
+// These endpoints return success for UI compatibility
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -19,19 +21,8 @@ export async function GET(request: Request) {
     return new ChatbotError("unauthorized:vote").toResponse();
   }
 
-  const chat = await getChatById({ id: chatId });
-
-  if (!chat) {
-    return new ChatbotError("not_found:chat").toResponse();
-  }
-
-  if (chat.userId !== session.user.id) {
-    return new ChatbotError("forbidden:vote").toResponse();
-  }
-
-  const votes = await getVotesByChatId({ id: chatId });
-
-  return Response.json(votes, { status: 200 });
+  // Return empty votes - not persisted without database
+  return Response.json([], { status: 200 });
 }
 
 export async function PATCH(request: Request) {
@@ -55,21 +46,6 @@ export async function PATCH(request: Request) {
     return new ChatbotError("unauthorized:vote").toResponse();
   }
 
-  const chat = await getChatById({ id: chatId });
-
-  if (!chat) {
-    return new ChatbotError("not_found:vote").toResponse();
-  }
-
-  if (chat.userId !== session.user.id) {
-    return new ChatbotError("forbidden:vote").toResponse();
-  }
-
-  await voteMessage({
-    chatId,
-    messageId,
-    type,
-  });
-
+  // Vote not persisted but return success for UI feedback
   return new Response("Message voted", { status: 200 });
 }
